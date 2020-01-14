@@ -743,6 +743,16 @@ type DDL struct {
 
 	// AutoIncSpec is set for AddAutoIncStr.
 	AutoIncSpec *AutoIncSpec
+
+	// Ignore is set to the IGNORE option on the ALTER or RENAME statement. It
+	// will end with a trailing space.
+	Ignore string
+
+	// AlterSpecs includes the specifics of an ALTER statement that involves
+	// adding, dropping, or renaming columns or changes a table's
+	// configuration. ALTERs that rename a table are still handled as a RENAME
+	// Action with From and ToTables set.
+	AlterSpecs []*AlterSpec
 }
 
 // DDL strings.
@@ -789,7 +799,23 @@ func (node *DDL) Format(buf *TrackedBuffer) {
 			buf.Myprintf(", %v to %v", node.FromTables[i], node.ToTables[i])
 		}
 	case AlterStr:
-		if node.PartitionSpec != nil {
+		if len(node.AlterSpecs) != 0 {
+			buf.Myprintf("%s %stable %v ", node.Action, node.Ignore, node.Table)
+			if len(node.AlterSpecs) == 1 {
+				buf.Myprintf("%v", node.AlterSpecs[0])
+			} else {
+				buf.Myprintf("(")
+				for i, spec := range node.AlterSpecs {
+					if i != 0 {
+						buf.Myprintf(", %v", spec)
+					} else {
+						buf.Myprintf("%v", spec)
+					}
+				}
+				buf.Myprintf(")")
+			}
+
+		} else if node.PartitionSpec != nil {
 			buf.Myprintf("%s table %v %v", node.Action, node.Table, node.PartitionSpec)
 		} else {
 			buf.Myprintf("%s table %v", node.Action, node.Table)
@@ -849,6 +875,112 @@ func (node *DDL) AffectedTables() TableNames {
 		return list
 	}
 	return TableNames{node.Table}
+}
+
+type AlterAction int
+
+const (
+	// AlterAddColumn is set when the ALTER statement adds a column. Multiple
+	// columns can be added within one `ADD COLUMN` sub-statement.
+	AlterAddColumn AlterAction = iota
+
+	// AlterDropColumn is set when the ALTER statement drops a column or index.
+	AlterDropColumn
+
+	// AlterAddIndexOrKey is set when the ALTER statement adds an index or key.
+	AlterAddIndexOrKey
+
+	// AlterDropIndexOrKey is set when the ALTER statement drops an index or key.
+	AlterDropIndexOrKey
+
+	// AlterAddPartition is set when the ALTER statement adds a partition.
+	AlterAddPartition
+
+	// AlterDropPartition is set when the ALTER statement drops a partition.
+	AlterDropPartition
+
+	// AlterRename is set when the ALTER statement renames a column or index.
+	AlterRename
+
+	AlterDropForeignKey
+	AlterDropPrimaryKey
+)
+
+type AlterSpec struct {
+	// The kind of operation the ALTER statement is.
+	Action AlterAction
+	// ColumnsAdded is set when the Action is AlterAddColumn.
+	ColumnsAdded []*ColumnDefinition
+	// ColumnDropped is set when the Action is AlterDropColumn.
+	ColumnDropped ColIdent
+	// IndexAdded is set when the Action is AlterAddIndexOrKey.
+	IndexAdded *IndexDefinition
+	// IndexDropped is set when the Action is AlterDropIndexOrKey. It's the name of the index or key dropped by this ALTER command.
+	IndexDropped *ColIdent
+	// PartitionAdded is set when the Action is AlterAddPartition.
+	PartitionAdded *PartitionDefinition
+	// PartitionsDropped is the name of the partition is dropped. It's set when
+	// AlterDropPartition is set.
+	PartitionsDropped Partitions
+
+	// ForeignKeyDropped is set when the Action is AlterDropForeignKey.
+	ForeignKeyDropped *ColIdent
+}
+
+func (spec *AlterSpec) Format(buf *TrackedBuffer) {
+	switch spec.Action {
+	case AlterAddColumn:
+		buf.Myprintf("add column ")
+		for i, col := range spec.ColumnsAdded {
+			if i == 0 {
+				buf.Myprintf("%v", col)
+			} else {
+				buf.Myprintf(", %v", col)
+			}
+		}
+	case AlterDropColumn:
+		buf.Myprintf("drop column %v", spec.ColumnDropped)
+	case AlterAddIndexOrKey:
+		buf.Myprintf("add %v", spec.IndexAdded)
+	case AlterDropIndexOrKey:
+		buf.Myprintf("drop index %v", *spec.IndexDropped)
+	case AlterAddPartition:
+		buf.Myprintf("add partition %v", spec.PartitionAdded)
+	case AlterDropPartition:
+		// FIXME this partitions print seems weird
+		buf.Myprintf("drop%v", spec.PartitionsDropped)
+	case AlterDropForeignKey:
+		buf.Myprintf("drop foreign key %v", spec.ForeignKeyDropped)
+	case AlterDropPrimaryKey:
+		buf.Myprintf("drop primary key")
+	}
+}
+
+func (node *AlterSpec) walkSubtree(visit Visit) error {
+	if node == nil {
+		return nil
+	}
+	var nodes []SQLNode
+	for _, col := range node.ColumnsAdded {
+		nodes = append(nodes, col)
+	}
+	if node.IndexAdded != nil {
+		nodes = append(nodes, node.IndexAdded)
+	}
+	if node.IndexDropped != nil {
+		nodes = append(nodes, node.IndexDropped)
+	}
+	if node.PartitionAdded != nil {
+		nodes = append(nodes, node.PartitionAdded)
+	}
+	if node.PartitionsDropped != nil {
+		nodes = append(nodes, node.PartitionsDropped)
+	}
+	if node.ForeignKeyDropped != nil {
+		nodes = append(nodes, node.ForeignKeyDropped)
+	}
+
+	return Walk(visit, nodes...)
 }
 
 // Partition strings
@@ -938,7 +1070,7 @@ func (node *PartitionDefinition) walkSubtree(visit Visit) error {
 	)
 }
 
-// TableSpec describes the structure of a table from a CREATE TABLE statement
+// TableSpec describes the structure of a table from a CREATE TABLE.
 type TableSpec struct {
 	Columns     []*ColumnDefinition
 	Indexes     []*IndexDefinition
@@ -1299,11 +1431,13 @@ func (idx *IndexDefinition) walkSubtree(visit Visit) error {
 
 // IndexInfo describes the name and type of an index in a CREATE TABLE statement
 type IndexInfo struct {
-	Type    string
-	Name    ColIdent
-	Primary bool
-	Spatial bool
-	Unique  bool
+	Type     string
+	Name     ColIdent
+	Primary  bool
+	Spatial  bool
+	Foreign  bool
+	Fulltext bool
+	Unique   bool
 }
 
 // Format formats the node.

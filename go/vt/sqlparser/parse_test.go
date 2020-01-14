@@ -821,20 +821,20 @@ var (
 	}, {
 		input: "set sql_safe_updates = 1",
 	}, {
-		input:  "alter ignore table a add foo",
-		output: "alter table a",
+		input:  "alter ignore table a add foo bigint",
+		output: "alter ignore table a add column foo bigint",
 	}, {
-		input:  "alter table a add foo",
-		output: "alter table a",
+		input:  "alter table a add foo bigint",
+		output: "alter table a add column foo bigint",
 	}, {
 		input:  "alter table a add spatial key foo (column1)",
-		output: "alter table a",
+		output: "alter table a add spatial key foo (column1)",
 	}, {
 		input:  "alter table a add unique key foo (column1)",
-		output: "alter table a",
+		output: "alter table a add unique key foo (column1)",
 	}, {
-		input:  "alter table `By` add foo",
-		output: "alter table `By`",
+		input:  "alter table `By` add foo bigint",
+		output: "alter table `By` add column foo bigint",
 	}, {
 		input:  "alter table a alter foo",
 		output: "alter table a",
@@ -846,7 +846,7 @@ var (
 		output: "alter table a",
 	}, {
 		input:  "alter table a drop foo",
-		output: "alter table a",
+		output: "alter table a drop column foo",
 	}, {
 		input:  "alter table a disable foo",
 		output: "alter table a",
@@ -903,61 +903,54 @@ var (
 		output: "alter table a",
 	}, {
 		input:  "alter table a add column id int",
-		output: "alter table a",
+		output: "alter table a add column id int",
 	}, {
 		input:  "alter table a add index idx (id)",
-		output: "alter table a",
+		output: "alter table a add index idx (id)",
 	}, {
 		input:  "alter table a add fulltext index idx (id)",
-		output: "alter table a",
+		output: "alter table a add fulltext index idx (id)",
 	}, {
 		input:  "alter table a add spatial index idx (id)",
-		output: "alter table a",
+		output: "alter table a add spatial index idx (id)",
 	}, {
 		input:  "alter table a add foreign key",
 		output: "alter table a",
 	}, {
-		input:  "alter table a add primary key",
+		input:  "alter table a add primary key idx (id)",
 		output: "alter table a",
 	}, {
 		input:  "alter table a add constraint",
 		output: "alter table a",
 	}, {
-		input:  "alter table a add id",
-		output: "alter table a",
+		input:  "alter table a add id int",
+		output: "alter table a add column id int",
 	}, {
-		input:  "alter table a drop column id int",
-		output: "alter table a",
+		input:  "alter table a drop column id",
+		output: "alter table a drop column id",
 	}, {
 		input:  "alter table a drop partition p2712",
+		output: "alter table a drop partition (p2712)",
+	}, {
+		input:  "alter table a drop index idx",
+		output: "alter table a drop index idx",
+	}, {
+		// ADD CHECK is parsed but ignored by mysql 5.7 and later, so we're
+		// skipping it.
+		input:  "alter table a add check ch_1 (1 = 1)",
 		output: "alter table a",
 	}, {
-		input:  "alter table a drop index idx (id)",
-		output: "alter table a",
-	}, {
-		input:  "alter table a drop fulltext index idx (id)",
-		output: "alter table a",
-	}, {
-		input:  "alter table a drop spatial index idx (id)",
-		output: "alter table a",
-	}, {
-		input:  "alter table a add check ch_1",
-		output: "alter table a",
-	}, {
-		input:  "alter table a drop check ch_1",
-		output: "alter table a",
-	}, {
-		input:  "alter table a drop foreign key",
-		output: "alter table a",
+		input:  "alter table a drop foreign key fk_idx",
+		output: "alter table a drop foreign key fk_idx",
 	}, {
 		input:  "alter table a drop primary key",
-		output: "alter table a",
+		output: "alter table a drop primary key",
 	}, {
 		input:  "alter table a drop constraint",
 		output: "alter table a",
 	}, {
 		input:  "alter table a drop id",
-		output: "alter table a",
+		output: "alter table a drop column id",
 	}, {
 		input: "create table a",
 	}, {
@@ -1478,31 +1471,33 @@ var (
 )
 
 func TestValid(t *testing.T) {
-	for _, tcase := range validSQL {
-		if tcase.output == "" {
-			tcase.output = tcase.input
-		}
-		tree, err := Parse(tcase.input)
-		if err != nil {
-			t.Errorf("Parse(%q) err: %v, want nil", tcase.input, err)
-			continue
-		}
-		out := String(tree)
-		if out != tcase.output {
-			t.Errorf("Parse(%q) = %q, want: %q", tcase.input, out, tcase.output)
-		}
-		// This test just exercises the tree walking functionality.
-		// There's no way automated way to verify that a node calls
-		// all its children. But we can examine code coverage and
-		// ensure that all walkSubtree functions were called.
-		Walk(func(node SQLNode) (bool, error) {
-			return true, nil
-		}, tree)
+	for i, tcase := range validSQL {
+		t.Run(fmt.Sprintf("test-%d", i), func(t *testing.T) {
+			if tcase.output == "" {
+				tcase.output = tcase.input
+			}
+			tree, err := Parse(tcase.input)
+			if err != nil {
+				t.Errorf("Parse(%q) err: %v, want nil", tcase.input, err)
+				return
+			}
+			out := String(tree)
+			if out != tcase.output {
+				t.Errorf("Parse(%q) = %q, want: %q", tcase.input, out, tcase.output)
+			}
+			// This test just exercises the tree walking functionality.
+			// There's no way automated way to verify that a node calls
+			// all its children. But we can examine code coverage and
+			// ensure that all walkSubtree functions were called.
+			Walk(func(node SQLNode) (bool, error) {
+				return true, nil
+			}, tree)
+		})
 	}
 }
 
 // Ensure there is no corruption from using a pooled yyParserImpl in Parse.
-func TestValidParallel(t *testing.T) {
+func TestParallelValid(t *testing.T) {
 	parallelism := 100
 	numIters := 1000
 
