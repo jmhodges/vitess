@@ -877,37 +877,43 @@ func (node *DDL) AffectedTables() TableNames {
 	return TableNames{node.Table}
 }
 
+// AlterAction is used to determine what kind of ALTER command is being
+// represented by an AlterSpec.
 type AlterAction int
 
 const (
-	// AlterAddColumn is set when the ALTER statement adds a column. Multiple
-	// columns can be added within one `ADD COLUMN` sub-statement.
+	// AlterAddColumn is set when the ALTER command adds a column. Multiple
+	// columns can be added within one `ADD COLUMN` sub-command.
 	AlterAddColumn AlterAction = iota
 
-	// AlterDropColumn is set when the ALTER statement drops a column or index.
+	// AlterDropColumn is set when the ALTER command drops a column or index.
 	AlterDropColumn
 
-	// AlterAddIndexOrKey is set when the ALTER statement adds an index or key.
+	// AlterAddIndexOrKey is set when the ALTER command adds an index or key.
 	AlterAddIndexOrKey
 
-	// AlterDropIndexOrKey is set when the ALTER statement drops an index or key.
+	// AlterDropIndexOrKey is set when the ALTER command drops an index or key.
 	AlterDropIndexOrKey
 
-	// AlterAddPartition is set when the ALTER statement adds a partition.
+	// AlterAddPartition is set when the ALTER command adds a partition.
 	AlterAddPartition
 
-	// AlterDropPartition is set when the ALTER statement drops a partition.
+	// AlterDropPartition is set when the ALTER command drops a partition.
 	AlterDropPartition
 
-	// AlterRename is set when the ALTER statement renames a column or index.
-	AlterRename
-
+	// AlterDropForeignKey is set when the ALTER command drops a foreign key constraint.
 	AlterDropForeignKey
+
+	// AlterDropPrimaryKey is set when the ALTER command drops the primary key
+	// from the table.
 	AlterDropPrimaryKey
 )
 
+// AlterSpec represents a specific command in an ALTER statement. An ALTER
+// statement can have some kinds of commands multiple times or with other
+// commands. Those are the kinds of commands that an AlterSpec represents.
 type AlterSpec struct {
-	// The kind of operation the ALTER statement is.
+	// The kind of operation the ALTER command is.
 	Action AlterAction
 	// ColumnsAdded is set when the Action is AlterAddColumn.
 	ColumnsAdded []*ColumnDefinition
@@ -927,6 +933,7 @@ type AlterSpec struct {
 	ForeignKeyDropped *ColIdent
 }
 
+// Format formats the node as a SQL command.
 func (spec *AlterSpec) Format(buf *TrackedBuffer) {
 	switch spec.Action {
 	case AlterAddColumn:
@@ -956,31 +963,32 @@ func (spec *AlterSpec) Format(buf *TrackedBuffer) {
 	}
 }
 
-func (node *AlterSpec) walkSubtree(visit Visit) error {
-	if node == nil {
+func (spec *AlterSpec) walkSubtree(visit Visit) error {
+	if spec == nil {
 		return nil
 	}
-	var nodes []SQLNode
-	for _, col := range node.ColumnsAdded {
-		nodes = append(nodes, col)
+	var specs []SQLNode
+	for _, col := range spec.ColumnsAdded {
+		specs = append(specs, col)
 	}
-	if node.IndexAdded != nil {
-		nodes = append(nodes, node.IndexAdded)
+	if spec.IndexAdded != nil {
+		specs = append(specs, spec.IndexAdded)
 	}
-	if node.IndexDropped != nil {
-		nodes = append(nodes, node.IndexDropped)
+	// FIXME remove this
+	if spec.IndexDropped != nil {
+		specs = append(specs, spec.IndexDropped)
 	}
-	if node.PartitionAdded != nil {
-		nodes = append(nodes, node.PartitionAdded)
+	if spec.PartitionAdded != nil {
+		specs = append(specs, spec.PartitionAdded)
 	}
-	if node.PartitionsDropped != nil {
-		nodes = append(nodes, node.PartitionsDropped)
+	if spec.PartitionsDropped != nil {
+		specs = append(specs, spec.PartitionsDropped)
 	}
-	if node.ForeignKeyDropped != nil {
-		nodes = append(nodes, node.ForeignKeyDropped)
+	if spec.ForeignKeyDropped != nil {
+		specs = append(specs, spec.ForeignKeyDropped)
 	}
 
-	return Walk(visit, nodes...)
+	return Walk(visit, specs...)
 }
 
 // Partition strings
