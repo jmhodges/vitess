@@ -1051,7 +1051,6 @@ func (spec *AlterSpec) Format(buf *TrackedBuffer) {
 	case AlterAddPartition:
 		buf.Myprintf("add partition %v", spec.PartitionAdded)
 	case AlterDropPartition:
-		// FIXME this partitions print seems weird
 		buf.Myprintf("drop%v", spec.PartitionsDropped)
 	case AlterDropForeignKey:
 		buf.Myprintf("drop foreign key %v", spec.ForeignKeyDropped)
@@ -1071,7 +1070,6 @@ func (spec *AlterSpec) walkSubtree(visit Visit) error {
 	if spec.IndexAdded != nil {
 		specs = append(specs, spec.IndexAdded)
 	}
-	// FIXME remove this
 	if spec.IndexDropped != nil {
 		specs = append(specs, spec.IndexDropped)
 	}

@@ -19,7 +19,6 @@ package sqlparser
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -851,31 +850,5 @@ func TestSplitStatementToPieces(t *testing.T) {
 		if out != tcase.output {
 			t.Errorf("out: %s, want %s", out, tcase.output)
 		}
-	}
-}
-
-func TestAlter(t *testing.T) {
-	okTests := []string{
-		"ALTER TABLE books ADD COLUMN read_count tinyint;",
-		"ALTER TABLE books ADD read_count tinyint;",
-		"alter table books add (read_count tinyint, author_id integer);",
-	}
-	for i, sql := range okTests {
-		t.Run(fmt.Sprintf("test-%d", i), func(t *testing.T) {
-			tkn := NewStringTokenizer(sql)
-			typ, val := tkn.Scan()
-			for {
-				t.Logf("welp %d, %#v", typ, string(val))
-				if typ == 0 || typ == ';' || typ == LEX_ERROR {
-					break
-				}
-				typ, val = tkn.Scan()
-			}
-
-			_, err := ParseStrictDDL(sql)
-			if err != nil {
-				t.Error(err)
-			}
-		})
 	}
 }
